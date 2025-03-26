@@ -1,0 +1,58 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import IsolationForest
+
+# Load Historical & Real-time Data from Excel
+def load_data():
+    historical_data = pd.read_excel("C:\Documents\historical_data.xlsx", sheet_name="Sheet1")
+    real_time_data = pd.read_excel("C:\Documents\real_time_data.xlsx", sheet_name="Sheet1")
+    return historical_data, real_time_data
+
+# Preprocess Data
+def preprocess_data(df):
+    df['abs_difference'] = df['Difference'].abs()
+    return df
+
+# Anomaly Detection using Isolation Forest
+def detect_anomalies(historical_df, real_time_df):
+    model = IsolationForest(contamination=0.1, random_state=42)
+    model.fit(historical_df[['abs_difference']])  # Train on historical patterns
+    real_time_df['anomaly_score'] = model.predict(real_time_df[['abs_difference']])
+    real_time_df['anomaly_detected'] = real_time_df['anomaly_score'].apply(lambda x: 'Anomaly' if x == -1 else 'Normal')
+    return real_time_df
+
+# Categorize Anomalies
+def categorize_anomalies(df):
+    df['category'] = 'Normal'
+    df.loc[df['Difference'] < 0, 'category'] = 'GL Lower than Sub Balance'
+    df.loc[df['Difference'] > 0, 'category'] = 'GL Higher than Sub Balance'
+    return df
+
+# Root Cause Analysis (Compare with Historical Patterns)
+def find_root_cause(transaction, historical_df):
+    hist_matches = historical_df[historical_df['Account Number'] == transaction['Account Number']]
+    
+    if not hist_matches.empty:
+        avg_diff = hist_matches['Difference'].mean()
+        
+        if abs(transaction['Difference']) > abs(avg_diff) * 1.5:
+            return 'Unusual Large Difference (Possible Posting Error)'
+        elif abs(transaction['Difference']) < abs(avg_diff) * 0.5:
+            return 'Within Expected Range'
+        else:
+            return 'Consistent Historical Pattern'
+    
+    return 'New Anomaly - No History Found'
+
+# Execute Pipeline
+historical_data, real_time_data = load_data()
+historical_data = preprocess_data(historical_data)
+real_time_data = preprocess_data(real_time_data)
+real_time_data = detect_anomalies(historical_data, real_time_data)
+real_time_data = categorize_anomalies(real_time_data)
+real_time_data['root_cause'] = real_time_data.apply(lambda row: find_root_cause(row, historical_data), axis=1)
+
+# Save output to Excel
+real_time_data.to_excel("C:\Documents\anomaly_detection_results.xlsx", index=False)
+
+print("Anomaly Detection & Root Cause Analysis Completed! Results saved.")
